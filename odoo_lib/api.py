@@ -3,8 +3,11 @@ import pandas as pd
 from decouple import Config, RepositoryEnv
 
 class OdooAPI:
-    def __init__(self):
-        env_path = '/home/snparada/Spacionatural/Libraries/odoo_lib/.env'
+    def __init__(self, database='productive'):
+        base_path = '/home/snparada/Spacionatural/Libraries/odoo_lib/'
+        env_file = '.env' if database == 'productive' else '.env.test'
+        env_path = base_path + env_file
+        
         config = Config(RepositoryEnv(env_path))
         
         self.url = config('ODOO_URL')

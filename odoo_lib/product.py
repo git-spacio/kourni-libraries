@@ -6,8 +6,8 @@ from pprint import pprint
 
 
 class OdooProduct(OdooAPI):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, database='productive'):
+        super().__init__(database=database)
 
 # CRUD
     def create_product(self, product_data):

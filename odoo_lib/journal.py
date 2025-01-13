@@ -4,8 +4,8 @@ from datetime import datetime
 
 
 class OdooJournal(OdooAPI):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, database='productive'):
+        super().__init__(database=database)
 #CRUD
     def create_journal_entries(self, journal_name, entries_df):
         """
@@ -234,8 +234,50 @@ class OdooJournal(OdooAPI):
             return f"Error al leer los asientos no conciliados: {str(e)}"
 
 
-
 #AUX
+    def reconcile_statement_line(self, statement_line_id, move_id):
+        """
+        Concilia una línea de extracto bancario con un asiento contable.
+        
+        Args:
+            statement_line_id (int): ID de la línea del extracto bancario
+            move_id (int): ID del asiento contable a conciliar
+            
+        Returns:
+            bool/str: True si la conciliación fue exitosa, mensaje de error si falló
+        """
+        try:
+            # Obtener la línea del asiento contable asociada al move_id
+            move_line = self.models.execute_kw(
+                self.db, self.uid, self.password,
+                'account.move.line', 'search_read',
+                [[
+                    ('move_id', '=', move_id),
+                    ('reconciled', '=', False)
+                ]],
+                {'fields': ['id']}
+            )
+            
+            if not move_line:
+                return "No se encontró la línea del asiento contable"
+            
+            # Preparar los datos para la conciliación usando reconcile_with_lines
+            try:
+                self.models.execute_kw(
+                    self.db, self.uid, self.password,
+                    'account.bank.statement.line',
+                    'reconcile_with_lines',
+                    [statement_line_id],
+                    {'line_ids': [move_line[0]['id']]}
+                )
+                return True
+                
+            except Exception as e:
+                return f"Error durante la conciliación: {str(e)}"
+                
+        except Exception as e:
+            return f"Error al buscar el asiento contable: {str(e)}"
+
     def _get_default_account(self, is_debit):
         """
         Método auxiliar para obtener una cuenta contable por defecto.

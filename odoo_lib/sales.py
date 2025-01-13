@@ -6,6 +6,8 @@ class OdooSales(OdooAPI):
     """
     Clase para manejar operaciones relacionadas con ventas en Odoo
     """
+    def __init__(self, database='productive'):
+        super().__init__(database=database)
     
     def read_sales_by_day(self, day):
         """
