@@ -64,3 +64,25 @@ class ShopifyOrders(ShopifyAPI):
             base_params['page_info'] = page_info
 
         return datas
+
+    def read_order_by_number(self, order_number):
+        """
+        Retrieve an order by its order number (name).
+        
+        Args:
+            order_number (str): The order number/name (can start with '#' or 'SN-')
+            
+        Returns:
+            dict: Order data if found, None if not found
+        """
+        # Remove '#' if present in the order number
+        order_number = order_number.replace('#', '')
+        
+        # Clean SN- prefix in any variation (case insensitive)
+        order_number = order_number.lower().replace('sn', '').replace('-', '').replace(' ', '')
+        
+        # Query using the name field
+        data = self.read('orders.json', params={'name': order_number, 'status': 'any'})
+        
+        # Return the first matching order or None if no matches
+        return data['orders'][0] if data['orders'] else None

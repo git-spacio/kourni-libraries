@@ -6,7 +6,9 @@ from datetime import datetime
 class OdooJournal(OdooAPI):
     def __init__(self, database='productive'):
         super().__init__(database=database)
+
 #CRUD
+
     def create_journal_entries(self, journal_name, entries_df):
         """
         Crea líneas de extracto bancario y las concilia automáticamente con los asientos contables correspondientes
@@ -234,15 +236,15 @@ class OdooJournal(OdooAPI):
             return f"Error al leer los asientos no conciliados: {str(e)}"
 
 
-#AUX
+    #AUX
     def reconcile_statement_line(self, statement_line_id, move_id):
         """
-        Concilia una línea de extracto bancario con un asiento contable.
+        Concilia una línea de extracto bancario con un asiento contable en Odoo 17.
         
         Args:
             statement_line_id (int): ID de la línea del extracto bancario
             move_id (int): ID del asiento contable a conciliar
-            
+        
         Returns:
             bool/str: True si la conciliación fue exitosa, mensaje de error si falló
         """
@@ -261,14 +263,16 @@ class OdooJournal(OdooAPI):
             if not move_line:
                 return "No se encontró la línea del asiento contable"
             
-            # Preparar los datos para la conciliación usando reconcile_with_lines
             try:
+                # En Odoo 17, usamos match_with_statement_line directamente
                 self.models.execute_kw(
                     self.db, self.uid, self.password,
-                    'account.bank.statement.line',
-                    'reconcile_with_lines',
-                    [statement_line_id],
-                    {'line_ids': [move_line[0]['id']]}
+                    'account.move.line',
+                    'match_with_statement_line',
+                    [move_line[0]['id']],
+                    {
+                        'statement_line_id': statement_line_id
+                    }
                 )
                 return True
                 
@@ -279,6 +283,7 @@ class OdooJournal(OdooAPI):
             return f"Error al buscar el asiento contable: {str(e)}"
 
     def _get_default_account(self, is_debit):
+        
         """
         Método auxiliar para obtener una cuenta contable por defecto.
         En una implementación real, esto debería configurarse según las necesidades.
@@ -301,3 +306,61 @@ class OdooJournal(OdooAPI):
 
         except Exception:
             return False
+        
+    def get_matching_statements_and_moves(journal_name):
+        """
+        Lee extractos bancarios no conciliados y devuelve solo aquellos que tienen
+        coincidencias exactas con asientos contables por importe y número de pedido.
+        
+        Args:
+            journal_name (str): Nombre del diario a consultar
+            
+        Returns:
+            list: Lista de diccionarios con extractos bancarios y sus asientos coincidentes
+        """
+        odoo_journal = OdooJournal(database='test')
+        matches = []
+        
+        # Obtener extractos bancarios no conciliados
+        bank_statements = odoo_journal.read_unreconciled_bank_statements(journal_name)
+        if isinstance(bank_statements, str):
+            print(f"Error: {bank_statements}")
+            return []
+        
+        # Obtener todos los asientos no conciliados
+        all_moves = odoo_journal.read_unreconciled_bank_entry(journal_name)
+        if isinstance(all_moves, str):
+            print(f"Error: {all_moves}")
+            return []
+        
+        # Por cada extracto bancario, buscar coincidencias exactas
+        for statement in bank_statements:
+            # Extraer el número de orden de la referencia de pago
+            payment_ref = statement['payment_ref']
+            order_number = payment_ref.split(' - ')[0].strip() if ' - ' in payment_ref else payment_ref
+            amount = statement['amount']
+            
+            # Buscar asientos que coincidan
+            matching_moves = []
+            for move in all_moves:
+                # Verificar si el número de orden está en el nombre del asiento
+                if order_number in move['name']:
+                    # Verificar si el importe coincide (considerando débito y crédito)
+                    if (amount > 0 and move['debit'] == abs(amount)) or \
+                    (amount < 0 and move['credit'] == abs(amount)):
+                        matching_moves.append(move)
+            
+            # Solo agregar si hay coincidencias
+            if matching_moves:
+                matches.append({
+                    'bank_statement': {
+                        'date': statement['date'],
+                        'reference': statement['payment_ref'],
+                        'amount': statement['amount'],
+                        'id': statement['id']
+                    },
+                    'matching_moves': matching_moves,
+                    'match_count': len(matching_moves)
+                })
+        
+        return matches
