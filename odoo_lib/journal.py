@@ -235,7 +235,6 @@ class OdooJournal(OdooAPI):
         except Exception as e:
             return f"Error al leer los asientos no conciliados: {str(e)}"
 
-
     #AUX
     def reconcile_statement_line(self, statement_line_id, move_id):
         """
