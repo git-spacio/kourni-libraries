@@ -1,4 +1,11 @@
-from .api import OdooAPI
+try:
+    from .api import OdooAPI
+except ImportError:
+    import sys
+    import os
+    # Add the parent directory to sys.path to allow absolute imports
+    sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from odoo_lib.api import OdooAPI
 import pandas as pd
 from datetime import datetime
 
@@ -236,130 +243,78 @@ class OdooJournal(OdooAPI):
             return f"Error al leer los asientos no conciliados: {str(e)}"
 
     #AUX
-    def reconcile_statement_line(self, statement_line_id, move_id):
+    def reconcile_statement_line(self, statement_line_id, move_line_id):
         """
-        Concilia una línea de extracto bancario con un asiento contable en Odoo 17.
+        Concilia una línea de extracto bancario con un apunte contable específico.
         
         Args:
             statement_line_id (int): ID de la línea del extracto bancario
-            move_id (int): ID del asiento contable a conciliar
-        
-        Returns:
-            bool/str: True si la conciliación fue exitosa, mensaje de error si falló
+            move_line_id (int): ID del apunte contable
         """
         try:
-            # Obtener la línea del asiento contable asociada al move_id
+            # Verificar si la línea existe y no está conciliada
+            statement_line = self.models.execute_kw(
+                self.db, self.uid, self.password,
+                'account.bank.statement.line', 'search_read',
+                [[('id', '=', statement_line_id)]],
+                {'fields': ['is_reconciled', 'amount']}
+            )
+            
+            if not statement_line:
+                return f"No se encontró la línea de extracto con ID {statement_line_id}"
+            
+            if statement_line[0].get('is_reconciled'):
+                return f"La línea {statement_line_id} ya está conciliada"
+
+            # Obtener el apunte contable
             move_line = self.models.execute_kw(
                 self.db, self.uid, self.password,
                 'account.move.line', 'search_read',
-                [[
-                    ('move_id', '=', move_id),
-                    ('reconciled', '=', False)
-                ]],
-                {'fields': ['id']}
+                [[('id', '=', move_line_id)]],
+                {'fields': ['id', 'reconciled', 'debit', 'credit']}
             )
-            
+
             if not move_line:
-                return "No se encontró la línea del asiento contable"
+                return f"No se encontró el apunte contable con ID {move_line_id}"
             
-            try:
-                # En Odoo 17, usamos match_with_statement_line directamente
-                self.models.execute_kw(
-                    self.db, self.uid, self.password,
-                    'account.move.line',
-                    'match_with_statement_line',
-                    [move_line[0]['id']],
-                    {
-                        'statement_line_id': statement_line_id
-                    }
-                )
-                return True
-                
-            except Exception as e:
-                return f"Error durante la conciliación: {str(e)}"
+            if move_line[0].get('reconciled'):
+                return f"El apunte contable {move_line_id} ya está conciliado"
+
+            # Realizar la conciliación usando process_reconciliation
+            self.models.execute_kw(
+                self.db, self.uid, self.password,
+                'account.bank.statement.line',
+                'process_reconciliation',
+                [statement_line_id],
+                {'payment_aml_ids': [(6, 0, [move_line_id])]}
+            )
+            return True
                 
         except Exception as e:
-            return f"Error al buscar el asiento contable: {str(e)}"
+            return f"Error general: {str(e)}"
 
-    def _get_default_account(self, is_debit):
         
-        """
-        Método auxiliar para obtener una cuenta contable por defecto.
-        En una implementación real, esto debería configurarse según las necesidades.
-        
-        :param is_debit: Boolean que indica si es un débito
-        :return: ID de la cuenta contable
-        """
-        try:
-            # Buscar una cuenta por defecto (esto debe adaptarse según tus necesidades)
-            domain = [('code', 'like', '1%')] if is_debit else [('code', 'like', '2%')]
-            
-            account = self.models.execute_kw(
-                self.db, self.uid, self.password,
-                'account.account', 'search',
-                [domain], 
-                {'limit': 1}
-            )
-            
-            return account[0] if account else False
+# Prueba de reconciliación con IDs específicos
+odoo_journal = OdooJournal(database='test')
 
-        except Exception:
-            return False
+# IDs específicos para probar
+statement_line_id = 11352
+move_line_id = 285737
+
+print(f"\nProbando reconciliación con:")
+print(f"Statement Line ID: {statement_line_id}")
+print(f"Move Line ID: {move_line_id}")
+
+try:
+    result = odoo_journal.reconcile_statement_line(
+        statement_line_id=statement_line_id,
+        move_line_id=move_line_id
+    )
+    
+    if isinstance(result, str):
+        print(f"\n❌ Error en la reconciliación: {result}")
+    else:
+        print("\n✓ Reconciliación exitosa")
+except Exception as e:
+    print(f"Error en la ejecución: {str(e)}")
         
-    def get_matching_statements_and_moves(journal_name):
-        """
-        Lee extractos bancarios no conciliados y devuelve solo aquellos que tienen
-        coincidencias exactas con asientos contables por importe y número de pedido.
-        
-        Args:
-            journal_name (str): Nombre del diario a consultar
-            
-        Returns:
-            list: Lista de diccionarios con extractos bancarios y sus asientos coincidentes
-        """
-        odoo_journal = OdooJournal(database='test')
-        matches = []
-        
-        # Obtener extractos bancarios no conciliados
-        bank_statements = odoo_journal.read_unreconciled_bank_statements(journal_name)
-        if isinstance(bank_statements, str):
-            print(f"Error: {bank_statements}")
-            return []
-        
-        # Obtener todos los asientos no conciliados
-        all_moves = odoo_journal.read_unreconciled_bank_entry(journal_name)
-        if isinstance(all_moves, str):
-            print(f"Error: {all_moves}")
-            return []
-        
-        # Por cada extracto bancario, buscar coincidencias exactas
-        for statement in bank_statements:
-            # Extraer el número de orden de la referencia de pago
-            payment_ref = statement['payment_ref']
-            order_number = payment_ref.split(' - ')[0].strip() if ' - ' in payment_ref else payment_ref
-            amount = statement['amount']
-            
-            # Buscar asientos que coincidan
-            matching_moves = []
-            for move in all_moves:
-                # Verificar si el número de orden está en el nombre del asiento
-                if order_number in move['name']:
-                    # Verificar si el importe coincide (considerando débito y crédito)
-                    if (amount > 0 and move['debit'] == abs(amount)) or \
-                    (amount < 0 and move['credit'] == abs(amount)):
-                        matching_moves.append(move)
-            
-            # Solo agregar si hay coincidencias
-            if matching_moves:
-                matches.append({
-                    'bank_statement': {
-                        'date': statement['date'],
-                        'reference': statement['payment_ref'],
-                        'amount': statement['amount'],
-                        'id': statement['id']
-                    },
-                    'matching_moves': matching_moves,
-                    'match_count': len(matching_moves)
-                })
-        
-        return matches
