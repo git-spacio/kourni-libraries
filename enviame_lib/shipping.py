@@ -67,110 +67,13 @@ class EnviameAPI:
             return None
 
     # READ
-    def read_tracking_by_reference(self, reference):
-        """
-        Obtiene el historial de tracking de un envío usando su número de referencia de Shopify
-        Args:
-            reference (str): Número de referencia (ej: 'sn-64556', 'Sn64556', 'S64556', '64556')
-        Returns:
-            dict: Información de tracking del envío o None si hay error
-        """
-        # Primero obtener el envío usando la referencia
-        delivery = self.read_delivery_by_reference(reference)
-        
-        if delivery is None:
-            print(f"No se encontró envío con la referencia: {reference}")
-            return None
-            
-        delivery_id = delivery['ID']
-        
-        # Construir la URL para el tracking
-        endpoint = f"deliveries/{delivery_id}/tracking"
-        url = urljoin(self.base_url, endpoint)
-        
-        try:
-            response = self.session.get(
-                url,
-                headers=self.headers
-            )
-            
-            if response.status_code == 200:
-                return response.json()
-            else:
-                print(f"Error obteniendo tracking: {response.status_code} - {response.text}")
-                return None
-                
-        except Exception as e:
-            print(f"Error al obtener tracking: {str(e)}")
-            return None
-
-    def read_delivery_by_reference(self, reference):
-        """
-        Busca un envío por su número de referencia de Shopify (imported_id)
-        Acepta formatos como: 'sn-64556', 'Sn64556', 'S64556', '64556'
-        """
-        def extract_number(ref):
-            """Extrae solo los números de una cadena"""
-            if not ref:
-                return None
-            return int(''.join(filter(str.isdigit, str(ref))))
-        
-        try:
-            # Extraer el número de la referencia proporcionada
-            search_number = extract_number(reference)
-            if not search_number:
-                print(f"No se pudo extraer un número válido de la referencia: {reference}")
-                return None
-                
-            print(f"Buscando número de orden: {search_number}")
-            
-            df = self.read_all_deliveries()
-            
-            if df is not None and not df.empty:
-                # Convertir la columna de referencias a números
-                df['Nº Orden'] = df['Nº Referencia'].apply(extract_number)
-                
-                # Filtrar por el número extraído
-                envio = df[df['Nº Orden'] == search_number]
-                
-                if not envio.empty:
-                    resultado = envio.iloc[0]
-                    print(f"\nEnvío encontrado:")
-                    print(f"Referencia original: {resultado['Nº Referencia']}")
-                    print(f"Número extraído: {resultado['Nº Orden']}")
-                    return resultado
-                else:
-                    print(f"No se encontró ningún envío con el número de orden: {search_number}")
-                    return None
-            else:
-                print("Error al obtener los envíos")
-                return None
-                
-        except Exception as e:
-            print(f"Error al procesar la referencia: {str(e)}")
-            return None
-    
-    def read_delivery(self, delivery_id):
-        endpoint = f"companies/{self.company_id}/deliveries/{delivery_id}"
-        url = urljoin(self.base_url, endpoint)
-        
-        response = requests.get(
-            url,
-            headers=self.headers
-        )
-        
-        if response.status_code == 200:
-            return response.json()
-        else:
-            print(f"Error reading delivery: {response.status_code} - {response.text}")
-            return None
-
     def read_all_deliveries(self, max_pages=30):
         """
         Obtiene los envíos del seller usando paginación
         Args:
             max_pages (int): Número máximo de páginas a obtener (por defecto 30)
                            Cada página contiene 20 envíos, así que por defecto se obtienen 600 envíos
+
         """
         endpoint = f"companies/{self.company_id}/deliveries"
         base_url = self.base_url if self.base_url.endswith('/') else f"{self.base_url}/"
@@ -272,6 +175,89 @@ class EnviameAPI:
             print(f"\nError: {str(e)}")
             return None
 
+    def read_tracking_by_reference(self, reference):
+        """
+        Obtiene el historial de tracking de un envío usando su número de referencia de Shopify
+        Args:
+            reference (str): Número de referencia (ej: 'sn-64556', 'Sn64556', 'S64556', '64556')
+        Returns:
+            dict: Información de tracking del envío o None si hay error
+        """
+        # Primero obtener el envío usando la referencia
+        delivery = self.read_delivery_by_reference(reference)
+        
+        if delivery is None:
+            print(f"No se encontró envío con la referencia: {reference}")
+            return None
+            
+        delivery_id = delivery['ID']
+        
+        # Construir la URL para el tracking
+        endpoint = f"deliveries/{delivery_id}/tracking"
+        url = urljoin(self.base_url, endpoint)
+        
+        try:
+            response = self.session.get(
+                url,
+                headers=self.headers
+            )
+            
+            if response.status_code == 200:
+                return response.json()
+            else:
+                print(f"Error obteniendo tracking: {response.status_code} - {response.text}")
+                return None
+                
+        except Exception as e:
+            print(f"Error al obtener tracking: {str(e)}")
+            return None
+
+    def read_delivery_by_reference(self, reference):
+        """
+        Busca un envío por su número de referencia de Shopify (imported_id)
+        Acepta formatos como: 'sn-64556', 'Sn64556', 'S64556', '64556'
+        """
+        def extract_number(ref):
+            """Extrae solo los números de una cadena"""
+            if not ref:
+                return None
+            return int(''.join(filter(str.isdigit, str(ref))))
+        
+        try:
+            # Extraer el número de la referencia proporcionada
+            search_number = extract_number(reference)
+            if not search_number:
+                print(f"No se pudo extraer un número válido de la referencia: {reference}")
+                return None
+                
+            print(f"Buscando número de orden: {search_number}")
+            
+            df = self.read_all_deliveries()
+            
+            if df is not None and not df.empty:
+                # Convertir la columna de referencias a números
+                df['Nº Orden'] = df['Nº Referencia'].apply(extract_number)
+                
+                # Filtrar por el número extraído
+                envio = df[df['Nº Orden'] == search_number]
+                
+                if not envio.empty:
+                    resultado = envio.iloc[0]
+                    print(f"\nEnvío encontrado:")
+                    print(f"Referencia original: {resultado['Nº Referencia']}")
+                    print(f"Número extraído: {resultado['Nº Orden']}")
+                    return resultado
+                else:
+                    print(f"No se encontró ningún envío con el número de orden: {search_number}")
+                    return None
+            else:
+                print("Error al obtener los envíos")
+                return None
+                
+        except Exception as e:
+            print(f"Error al procesar la referencia: {str(e)}")
+            return None
+    
     # UPDATE
     def update_delivery(self, delivery_id, update_data):
         endpoint = f"companies/{self.company_id}/deliveries/{delivery_id}"

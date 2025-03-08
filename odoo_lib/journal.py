@@ -11,7 +11,7 @@ from datetime import datetime
 
 
 class OdooJournal(OdooAPI):
-    def __init__(self, database='productive'):
+    def __init__(self, database='test'):
         super().__init__(database=database)
 
 #CRUD
@@ -245,63 +245,111 @@ class OdooJournal(OdooAPI):
     #AUX
     def reconcile_statement_line(self, statement_line_id, move_line_id):
         """
-        Concilia una línea de extracto bancario con un apunte contable específico.
+        Actualiza el contacto de una línea de extracto bancario y la concilia con el apunte contable.
         
         Args:
             statement_line_id (int): ID de la línea del extracto bancario
-            move_line_id (int): ID del apunte contable
+            move_line_id (int): ID del apunte contable específico
         """
         try:
-            # Verificar si la línea existe y no está conciliada
-            statement_line = self.models.execute_kw(
-                self.db, self.uid, self.password,
-                'account.bank.statement.line', 'search_read',
-                [[('id', '=', statement_line_id)]],
-                {'fields': ['is_reconciled', 'amount']}
-            )
-            
-            if not statement_line:
-                return f"No se encontró la línea de extracto con ID {statement_line_id}"
-            
-            if statement_line[0].get('is_reconciled'):
-                return f"La línea {statement_line_id} ya está conciliada"
-
-            # Obtener el apunte contable
-            move_line = self.models.execute_kw(
+            # Verificar y obtener información del apunte contable objetivo (Recibos pendientes)
+            target_line = self.models.execute_kw(
                 self.db, self.uid, self.password,
                 'account.move.line', 'search_read',
                 [[('id', '=', move_line_id)]],
-                {'fields': ['id', 'reconciled', 'debit', 'credit']}
-            )
-
-            if not move_line:
-                return f"No se encontró el apunte contable con ID {move_line_id}"
+                {'fields': ['id', 'partner_id', 'name', 'account_id', 'move_id']}
+            )[0]
             
-            if move_line[0].get('reconciled'):
-                return f"El apunte contable {move_line_id} ya está conciliado"
-
-            # Realizar la conciliación usando process_reconciliation
+            # Buscar la línea transitoria relacionada al extracto bancario
+            transitional_line = self.models.execute_kw(
+                self.db, self.uid, self.password,
+                'account.move.line', 'search_read',
+                [[
+                    ('statement_line_id', '=', statement_line_id),
+                    ('account_id.code', '=', '110103')  # Cuenta transitoria
+                ]],
+                {'fields': ['id', 'move_id']}
+            )[0]
+            
+            # Actualizar la línea transitoria con la cuenta de recibos pendientes
+            self.models.execute_kw(
+                self.db, self.uid, self.password,
+                'account.move.line',
+                'write',
+                [[transitional_line['id']], {
+                    'partner_id': target_line['partner_id'][0],
+                    'name': target_line['name'],
+                    'account_id': target_line['account_id'][0]  # Cuenta de recibos pendientes
+                }]
+            )
+            
+            # Actualizar el contacto en la línea de cobranza flow
+            flow_lines = self.models.execute_kw(
+                self.db, self.uid, self.password,
+                'account.move.line', 'search_read',
+                [[
+                    ('statement_line_id', '=', statement_line_id),
+                    ('account_id.code', '=', '1104201')  # Cuenta Cobranza Flow
+                ]],
+                {'fields': ['id']}
+            )
+            
+            if flow_lines:
+                self.models.execute_kw(
+                    self.db, self.uid, self.password,
+                    'account.move.line',
+                    'write',
+                    [[flow_lines[0]['id']], {
+                        'partner_id': target_line['partner_id'][0]
+                    }]
+                )
+            
+            # Actualizar el contacto en el extracto bancario
             self.models.execute_kw(
                 self.db, self.uid, self.password,
                 'account.bank.statement.line',
-                'process_reconciliation',
-                [statement_line_id],
-                {'payment_aml_ids': [(6, 0, [move_line_id])]}
+                'write',
+                [[statement_line_id], {
+                    'partner_id': target_line['partner_id'][0]
+                }]
             )
+            
+            # Obtener el apunte contable que queremos conciliar (el que tiene la cuenta de recibos pendientes)
+            statement_lines_to_reconcile = self.models.execute_kw(
+                self.db, self.uid, self.password,
+                'account.move.line', 'search',
+                [[
+                    ('statement_line_id', '=', statement_line_id),
+                    ('account_id', '=', target_line['account_id'][0])
+                ]]
+            )
+            
+            # Realizar la conciliación entre los apuntes contables
+            if statement_lines_to_reconcile:
+                self.models.execute_kw(
+                    self.db, self.uid, self.password,
+                    'account.move.line',
+                    'account_partial_reconcile',
+                    [],
+                    {
+                        'debit_move_id': move_line_id,
+                        'credit_move_id': statement_lines_to_reconcile[0]
+                    }
+                )
+            
             return True
                 
         except Exception as e:
-            return f"Error general: {str(e)}"
+            return f"Error durante la actualización: {str(e)}"
 
-        
-# Prueba de reconciliación con IDs específicos
+# Prueba de actualización con IDs específicos
 odoo_journal = OdooJournal(database='test')
 
 # IDs específicos para probar
-statement_line_id = 11352
-move_line_id = 285737
+statement_line_id = 11356  # ID del extracto bancario
+move_line_id = 285476  # ID del apunte contable específico
 
-print(f"\nProbando reconciliación con:")
+print(f"\nProbando actualización de contacto con:")
 print(f"Statement Line ID: {statement_line_id}")
 print(f"Move Line ID: {move_line_id}")
 
@@ -312,9 +360,9 @@ try:
     )
     
     if isinstance(result, str):
-        print(f"\n❌ Error en la reconciliación: {result}")
+        print(f"\n❌ Error en la actualización: {result}")
     else:
-        print("\n✓ Reconciliación exitosa")
+        print("\n✓ Actualización de contacto exitosa")
 except Exception as e:
     print(f"Error en la ejecución: {str(e)}")
         

@@ -1,4 +1,3 @@
-
 import sys
 sys.path.append('/home/snparada/Spacionatural/Libraries/shopify_lib')
 from api import ShopifyAPI
@@ -42,11 +41,19 @@ class ShopifyProducts(ShopifyAPI):
         products = []
         endpoint = 'products.json?limit=250'
         
+        # Imprimir la URL base para depuración
+        print(f"Base URL: {self.base_url}")
+        print(f"Endpoint completo: {urljoin(self.base_url, endpoint)}")
+        
         # Loop para obtener todos los productos
         while endpoint:
             full_url = urljoin(self.base_url, endpoint)
+            print(f"Intentando conectar a: {full_url}")
             response = requests.get(full_url, headers=self.get_headers())
-
+            
+            # Imprimir headers para depuración
+            print(f"Headers utilizados: {self.get_headers()}")
+            
             if response.status_code == 200 and response.content:
                 data = json.loads(response.content)
                 products.extend(data['products'])

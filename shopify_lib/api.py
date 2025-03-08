@@ -4,7 +4,7 @@ dotenv_path = '/home/snparada/Spacionatural/Libraries/shopify_lib/creds/.env'
 config = Config(RepositoryEnv(dotenv_path))
 
 class ShopifyAPI:
-    def __init__(self, shop_url=None, api_password=None, api_version=None):
+    def __init__(self, shop_url=None, api_password=None, api_version="2025-01"):
         # Leer las variables de entorno utilizando decouple
         self.shop_url = shop_url if shop_url else config('SHOPIFY_SHOP_URL')
         self.api_password = api_password if api_password else config('SHOPIFY_PASSWORD')
@@ -13,6 +13,11 @@ class ShopifyAPI:
         self.shop_url = self.shop_url.rstrip('/')
         self.base_url = f"{self.shop_url}/admin/api/{self.api_version}"
         self.last_response = None
+
+        # Asegúrate de que la base_url termine con una barra
+        if not self.base_url.endswith('/'):
+            self.base_url += '/'
+        
 
     def get_headers(self):
         return {
